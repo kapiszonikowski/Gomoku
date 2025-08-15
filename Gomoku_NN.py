@@ -193,3 +193,101 @@ class GomokuTrainer:
                 metrics = self.train_step(states, policy_targets, value_targets)
                 history.append(metrics)
         return history
+
+def gomoku_loss(
+    policy_logits: torch.Tensor,
+    values: torch.Tensor,
+    policy_targets: torch.Tensor,
+    value_targets: torch.Tensor,
+    policy_weight: float = 1.0,
+    value_weight: float = 1.0,
+):
+    """Compute combined loss for policy and value heads.
+
+    - *Policy*: cross-entropy between logits and target move index, which treats
+      each board position (plus Swap2 actions) as a separate class.
+    - *Value*: mean squared error on the scalar position evaluation in
+      ``[-1, 1]``.  MSE provides a smooth gradient for regression tasks.
+    - The total loss is a weighted sum of these components, mirroring the
+      AlphaZero training objective where policy and value contribute equally by
+      default.
+
+    Returns a tuple ``(loss, policy_loss, value_loss)``.
+    """
+
+    policy_loss = F.cross_entropy(policy_logits, policy_targets)
+    value_loss = F.mse_loss(values, value_targets)
+    loss = policy_weight * policy_loss + value_weight * value_loss
+    return loss, policy_loss, value_loss
+
+
+class GomokuTrainer:
+    """Simple helper class to train :class:`GomokuNet` models.
+
+    The trainer expects batches of ``(state, policy_target, value_target)``
+    where ``state`` can be a numpy array or a tensor accepted by
+    :meth:`GomokuNet.forward` and ``policy_target`` is an index of the
+    expected move. ``value_target`` should contain the scalar value of the
+    position in ``[-1, 1]``.
+    """
+
+    def __init__(
+        self,
+        model: GomokuNet,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+        device: torch.device | None = None,
+    ):
+        self.model = model
+        self.device = device or torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        self.model.to(self.device)
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=lr, weight_decay=weight_decay
+        )
+
+    def _prepare_batch(self, states, policy_targets, value_targets):
+        if isinstance(states, np.ndarray):
+            states = self.model._convert_numpy_state(states)
+        states = states.to(self.device)
+        policy_targets = torch.as_tensor(
+            policy_targets, dtype=torch.long, device=self.device
+        )
+        value_targets = torch.as_tensor(
+            value_targets, dtype=torch.float32, device=self.device
+        )
+        return states, policy_targets, value_targets
+
+    def train_step(self, states, policy_targets, value_targets):
+        """Performs a single optimization step and returns loss metrics."""
+        self.model.train()
+        states, policy_targets, value_targets = self._prepare_batch(
+            states, policy_targets, value_targets
+        )
+        out = self.model(states)
+        policy_logits, values = out["policy_logits"], out["value"]
+
+        loss, p_loss, v_loss = gomoku_loss(
+            policy_logits, values, policy_targets, value_targets
+        )
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {
+            "loss": float(loss.item()),
+            "policy_loss": float(p_loss.item()),
+            "value_loss": float(v_loss.item()),
+        }
+
+    def fit(self, data_loader, epochs: int = 1):
+        """Iterates over ``data_loader`` for a number of epochs."""
+        history = []
+        for _ in range(epochs):
+            for batch in data_loader:
+                states, policy_targets, value_targets = batch
+                metrics = self.train_step(states, policy_targets, value_targets)
+                history.append(metrics)
+        return history
