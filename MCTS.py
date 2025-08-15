@@ -70,7 +70,9 @@ class PureStepper:
         g = Gomoku(**self._cfg)
         apply_snapshot(g, snap)
         if last_action is None:
-            return 0, False
+            # Metoda wykrywa terminal także bez ostatniej akcji
+            has_moves = np.any(self.valid_moves(state, snap))
+            return 0, not has_moves
         value, term = g.get_value_and_terminated(state, last_action)
         return value, term
 
@@ -98,7 +100,7 @@ class Node:
         self.expandable_moves = self.stepper.valid_moves(self.state, self.snap).astype(np.uint8)
 
     def is_fully_expanded(self) -> bool:
-        return np.sum(self.expandable_moves) == 0 and len(self.children) > 0
+        return np.sum(self.expandable_moves) == 0
 
     def select(self, c_ucb: float) -> 'Node':
         """Wybierz dziecko wg UCB1."""

@@ -1,9 +1,9 @@
 from Gomoku import Gomoku
 from MCTS import MCTS
-from GUMBLE import GumbelMCTS
+from GUMBEL import GumbelMCTS
 import numpy as np
-from Gomoku_NN import GomokuNet  # <-- DODAJ
-import torch                     # <-- DODAJ
+from Gomoku_NN import GomokuNet
+import torch
 
 if __name__ == "__main__":
     size = 8
@@ -15,10 +15,13 @@ if __name__ == "__main__":
     net = GomokuNet(board_size=size).to(device).eval()
 
     gmcts = GumbelMCTS(gomoku, num_simulations=1000, num_candidates=None,
-                       cvisit=50, cscale=1, keep_ratio=0.5, root_dirichlet_epsilon=1)
+                       cvisit=50, cscale=1, keep_ratio=0.5, root_dirichlet_epsilon=1,
+                       NN=True, Test=False, net=net, device=device)
 
     # Przekazujemy sieć do MCTS (NN=True uruchomi ścieżkę NN)
     mcts = MCTS(gomoku, C=1.41, num_searches=500, NN=True, Test=False, net=net, device=device)
+
+    bot = gmcts  # wybierz algorytm: gmcts lub mcts
 
     # Zagraj vs. MCTS (człowiek jako „A”, bot jako „B” – to naturalnie rozstrzygnie się w trakcie Swap2)
     human_label = "B"
@@ -49,8 +52,8 @@ if __name__ == "__main__":
                 print("Ruch niedozwolony.")
                 continue
         else:
-            # BOT – MCTS
-            probs = mcts.search(state)
+            # BOT – wybrany algorytm
+            probs = bot.search(state)
             action = int(np.argmax(probs))
 
         # Wykonaj ruch w prawdziwej grze
@@ -59,8 +62,8 @@ if __name__ == "__main__":
 
         if who != human_label:
             # Raport: rozkład wizyt po ruchu bota
-            print("MCTS: TOP wizyty po ostatnim wyszukiwaniu:")
-            for d in mcts.visit_distribution(topk=10):
+            print(f"{bot.__class__.__name__}: TOP wizyty po ostatnim wyszukiwaniu:")
+            for d in bot.visit_distribution(topk=10):
                 print(f"  a={d['action']:>3} [{d['kind']:<6}] {d['rc']:<10}  visits={d['visits']:<5}  p={d['prob']:.3f}")
 
         if terminal:

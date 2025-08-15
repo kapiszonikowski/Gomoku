@@ -1,3 +1,6 @@
++ 21
+- 0
+
 # gumbel_mcts_gomoku.py
 from __future__ import annotations
 
@@ -6,8 +9,10 @@ import math
 from typing import Optional, List, Tuple, Dict
 
 import numpy as np
+import torch
 
 from Gomoku import Gomoku
+from Gomoku_NN import GomokuNet
 from MCTS import GameSnapshot, PureStepper, snapshot_from_game
 
 
@@ -48,6 +53,10 @@ class GumbelMCTS:
         tactical_check: bool = False,                     # sprawdzaj mata w 1 dla przeciwnika
         instant_win_check: bool = False,                  # sprawdzaj własnego mata w 1
         rng: Optional[np.random.Generator] = None,
+        NN: bool = False,
+        Test: bool = False,
+        net: Optional[GomokuNet] = None,
+        device=None,
     ):
         self.game = game
         self.stepper = PureStepper(template_game=game)
@@ -66,6 +75,11 @@ class GumbelMCTS:
 
         self.rng = rng if rng is not None else np.random.default_rng()
 
+        self.NN = NN
+        self.Test = Test
+        self.net = net
+        self.device = device
+
         # raport po wyszukiwaniu:
         self.last_visit_counts: Optional[np.ndarray] = None
         self.last_children: List[Tuple[int, int]] = []
@@ -78,6 +92,16 @@ class GumbelMCTS:
         """
         root_state = state.copy()
         root_snap = snapshot_from_game(self.game)
+
+        if policy_logits is None and self.NN:
+            if self.net is None:
+                raise RuntimeError("NN=True, ale nie przekazano instancji sieci (net=None).")
+            with torch.no_grad():
+                out = self.net(state)
+                logits_t = out['policy_logits']
+                policy_logits = logits_t.squeeze(0).detach().cpu().numpy()
+            if self.Test:
+                print("NN policy logits obliczone.")
 
         valid = self.stepper.valid_moves(root_state, root_snap)
         legal_idx = np.where(valid == 1)[0]

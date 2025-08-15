@@ -120,3 +120,76 @@ class GomokuNet(nn.Module):
         v = torch.tanh(self.val_fc2(v)).squeeze(1)  # (B,)
 
         return {'policy_logits': policy_logits, 'value': v}
+
+class GomokuTrainer:
+    """Simple helper class to train :class:`GomokuNet` models.
+
+    The trainer expects batches of ``(state, policy_target, value_target)``
+    where ``state`` can be a numpy array or a tensor accepted by
+    :meth:`GomokuNet.forward` and ``policy_target`` is an index of the
+    expected move. ``value_target`` should contain the scalar value of the
+    position in ``[-1, 1]``.
+    """
+
+    def __init__(
+        self,
+        model: GomokuNet,
+        lr: float = 1e-3,
+        weight_decay: float = 1e-4,
+        device: torch.device | None = None,
+    ):
+        self.model = model
+        self.device = device or torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        self.model.to(self.device)
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=lr, weight_decay=weight_decay
+        )
+        self.policy_loss_fn = nn.CrossEntropyLoss()
+        self.value_loss_fn = nn.MSELoss()
+
+    def _prepare_batch(self, states, policy_targets, value_targets):
+        if isinstance(states, np.ndarray):
+            states = self.model._convert_numpy_state(states)
+        states = states.to(self.device)
+        policy_targets = torch.as_tensor(
+            policy_targets, dtype=torch.long, device=self.device
+        )
+        value_targets = torch.as_tensor(
+            value_targets, dtype=torch.float32, device=self.device
+        )
+        return states, policy_targets, value_targets
+
+    def train_step(self, states, policy_targets, value_targets):
+        """Performs a single optimization step and returns loss metrics."""
+        self.model.train()
+        states, policy_targets, value_targets = self._prepare_batch(
+            states, policy_targets, value_targets
+        )
+        out = self.model(states)
+        policy_logits, values = out["policy_logits"], out["value"]
+
+        p_loss = self.policy_loss_fn(policy_logits, policy_targets)
+        v_loss = self.value_loss_fn(values, value_targets)
+        loss = p_loss + v_loss
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {
+            "loss": float(loss.item()),
+            "policy_loss": float(p_loss.item()),
+            "value_loss": float(v_loss.item()),
+        }
+
+    def fit(self, data_loader, epochs: int = 1):
+        """Iterates over ``data_loader`` for a number of epochs."""
+        history = []
+        for _ in range(epochs):
+            for batch in data_loader:
+                states, policy_targets, value_targets = batch
+                metrics = self.train_step(states, policy_targets, value_targets)
+                history.append(metrics)
+        return history
