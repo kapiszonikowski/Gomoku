@@ -1,7 +1,3 @@
-+ 21
-- 0
-
-# gumbel_mcts_gomoku.py
 from __future__ import annotations
 
 # -*- coding: utf-8 -*-
