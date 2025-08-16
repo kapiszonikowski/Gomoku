@@ -92,6 +92,10 @@ class GomokuNet(nn.Module):
         if isinstance(x, np.ndarray):
             x = self._convert_numpy_state(x)
 
+        # *** KLUCZOWA POPRAWKA: przenieś wejście na to samo urządzenie co model ***
+        device = next(self.parameters()).device
+        x = x.to(device, non_blocking=True)
+
         # x: (B, 3, N, N); channels_last tylko dla 4D
         if x.dim() == 4:
             x = x.contiguous(memory_format=torch.channels_last)
